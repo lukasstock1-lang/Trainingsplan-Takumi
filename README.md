@@ -59,7 +59,23 @@ Danach im Browser **http://localhost:8080** öffnen.
 3. Im Trainer-Fenster ein Training **absagen**. Im Eltern-Fenster wird es sofort rot, und eine echte System-Benachrichtigung erscheint.
 4. Danach kann man über **Einstellungen → Demo-Daten zurücksetzen** wieder von vorne anfangen.
 
-Auf dem Handy zeigen: Die App auf einen Server mit HTTPS legen (z. B. GitHub Pages, Netlify, Vercel). Dann im Browser öffnen und **„Zum Home-Bildschirm“** wählen.
+### Auf dem Handy präsentieren
+Dafür muss die App unter einer HTTPS-Adresse erreichbar sein. Am einfachsten geht das so:
+
+**Netlify (Repo bleibt privat, kostenlos)**
+1. Auf [app.netlify.com](https://app.netlify.com) mit GitHub anmelden.
+2. **Add new project → Import an existing project → GitHub** wählen und Netlify Zugriff auf `Trainingsplan-Takumi` geben.
+3. Als Branch den Branch mit der App wählen (bzw. `main`, sobald gemergt). Build-Befehl und Ordner leer lassen, `netlify.toml` erledigt das.
+4. **Deploy** klicken. Man bekommt eine Adresse wie `https://irgendwas.netlify.app`.
+
+**Alternative: GitHub Pages.** Funktioniert kostenlos nur mit einem öffentlichen Repo. Settings → Pages → „Deploy from a branch“ → Branch wählen, Ordner `/ (root)`.
+
+**Ablauf auf einem einzigen Handy**
+1. Die Adresse öffnen, **„Zum Home-Bildschirm“** wählen und die App von dort starten.
+2. **Eltern & Kinder** wählen → bei „Nichts mehr verpassen!“ auf **Aktivieren** tippen → Benachrichtigungen erlauben.
+3. ⚙️ → **Zum Trainer-Zugang** → PIN `7474` → ein Training **absagen**. Die Push-Nachricht erscheint auf dem Handy.
+4. ⚙️ → **Zur Eltern-Ansicht wechseln**. Das Training ist jetzt rot markiert, auch im Feld „Dein nächstes Training“.
+
 Hinweis zum iPhone: Push-Nachrichten gibt es ab iOS 16.4, und nur wenn die App über „Zum Home-Bildschirm“ installiert wurde.
 
 ## Projektstruktur

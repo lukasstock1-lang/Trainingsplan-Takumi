@@ -599,6 +599,7 @@ function viewSettings() {
           <button class="btn btn-primary btn-sm" type="submit">Speichern</button>
         </div>
       </form>
+      <button class="btn btn-ghost btn-block" data-action="to-member">👨‍👩‍👧 Zur Eltern-Ansicht wechseln</button>
       <button class="btn btn-ghost btn-block" data-action="logout">${icon('logout')} Abmelden</button>
     </section>
     <section class="settings-section">
@@ -792,6 +793,10 @@ const actions = {
   'to-trainer': () => {
     ui.pinError = false;
     go('pin');
+  },
+  'to-member': () => {
+    store.setRole('member');
+    go('schedule');
   },
   'groups-all': () => store.setDevice({ groups: [] }),
   'toggle-group': (el) => {
