@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Takumi 74 Trainingsplan</title>
+    <meta name="description" content="Trainingsplan von Takumi 74 – mit Benachrichtigung, wenn ein Training ausfällt." />
+    <meta name="theme-color" content="#f4efe4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141211" media="(prefers-color-scheme: dark)" />
+
+    <!-- Als App installierbar (PWA) -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Takumi 74" />
+
+    <link rel="stylesheet" href="css/styles.css" />
+    <script type="module" src="js/app.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <noscript>Bitte JavaScript aktivieren, um den Trainingsplan zu sehen.</noscript>
+    </div>
+    <div id="toasts" aria-live="polite"></div>
+    <dialog id="dialog"></dialog>
+  </body>
+</html>

@@ -1,0 +1,24 @@
+# Cloudflare Worker: liefert die App aus und stellt die API unter /api/ bereit.
+name = "takumi74"
+main = "server/src/index.js"
+compatibility_date = "2025-10-01"
+
+# Die App-Dateien (index.html, js/, css/, …) liegen im Hauptordner.
+# Was nicht ausgeliefert werden soll, steht in .assetsignore.
+[assets]
+directory = "."
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "takumi74"
+database_id = "00000000-0000-0000-0000-000000000000" # wird beim ersten Deploy ersetzt
+migrations_dir = "server/migrations"
+
+# Der Worker ruft sich selbst auf, um Push-Nachrichten in Paketen zu verschicken.
+[[services]]
+binding = "SELF"
+service = "takumi74"
+
+# Geheimnisse (nicht hier eintragen!): AUTH_SECRET, INITIAL_PIN, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
+# → werden mit "wrangler secret bulk" gesetzt, siehe README.
