@@ -1555,3 +1555,18 @@ dialog[open] .sheet {
     scroll-behavior: auto !important;
   }
 }
+
+.offline-note {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--sub-soft);
+  color: var(--sub);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.offline-note .icon {
+  margin-top: 2px;
+}

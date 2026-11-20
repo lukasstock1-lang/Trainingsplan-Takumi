@@ -16,7 +16,15 @@ import {
   timeLabel,
   trainerNames,
 } from './schedule.js';
-import { isIos, isStandalone, notifier, registerServiceWorker, subscribeServerPush } from './notify.js';
+import {
+  isIos,
+  isStandalone,
+  notifier,
+  registerServiceWorker,
+  sendServerTestPush,
+  subscribeServerPush,
+  unsubscribeServerPush,
+} from './notify.js';
 
 const $app = document.getElementById('app');
 const $dialog = document.getElementById('dialog');
@@ -31,7 +39,9 @@ const ui = {
   groupsOnboarding: false,
 };
 
-let seenEventId = store.device.seenEventId || 0;
+let seenEventId = 0;
+let ready = false; // erst nach dem Laden der Daten auf neue Absagen reagieren
+const seenKey = () => (store.mode === 'server' ? 'seenServerEventId' : 'seenEventId');
 let renderPending = false;
 
 // ---------------------------------------------------------------------------
@@ -93,6 +103,18 @@ function toast(html, type = 'info', ms = 4000) {
   }, ms);
 }
 
+// Führt eine Aktion aus und zeigt Fehler (z. B. „offline“) als Meldung an.
+async function attempt(fn) {
+  try {
+    await fn();
+    return true;
+  } catch (e) {
+    toast(`${icon('alert')}<span>${esc(e?.message || 'Das hat leider nicht geklappt.')}</span>`, 'bad', 6000);
+    render();
+    return false;
+  }
+}
+
 // Öffnet ein Bottom-Sheet. Löst mit { value, form } auf, oder null bei Abbruch.
 function openDialog(html) {
   return new Promise((resolve) => {
@@ -149,12 +171,13 @@ function cancellationMessage(occ) {
   };
 }
 
-// Prüft, ob neue Absagen eingegangen sind (eigener Tab, anderer Tab oder später: Server).
+// Prüft, ob neue Absagen eingegangen sind (eigener Tab, anderer Tab oder vom Server).
 function handleNewEvents({ initial = false } = {}) {
+  if (!ready) return;
   const events = (store.state.events || []).filter((ev) => ev.id > seenEventId);
   if (!events.length) return;
   seenEventId = Math.max(...events.map((ev) => ev.id));
-  store.setDevice({ seenEventId: Math.max(seenEventId, store.device.seenEventId || 0) }, { silent: true });
+  store.setDevice({ [seenKey()]: Math.max(seenEventId, store.device[seenKey()] || 0) }, { silent: true });
 
   const relevant = events
     .map((ev) => ({ ev, occ: occurrenceByKey(store.state, ev.key) }))
@@ -172,7 +195,8 @@ function handleNewEvents({ initial = false } = {}) {
     if (ev.origin !== TAB_ID) {
       toast(`${icon('alert')}<span><strong>Training fällt aus</strong><br>${esc(occ.session.title)} · ${esc(occDateLabel(occ))}</span>`, 'bad', 7000);
     }
-    if (store.device.notify) notifier.show(msg);
+    // Im Server-Modus kommt die System-Benachrichtigung als echte Push-Nachricht vom Server.
+    if (store.mode !== 'server' && store.device.notify) notifier.show(msg);
   }
 }
 
@@ -189,8 +213,8 @@ async function enableNotifications() {
   }
   const permission = await notifier.request();
   if (permission === 'granted') {
+    if (store.mode === 'server' && !(await attempt(() => subscribeServerPush(store.vapidPublicKey, store.device.groups)))) return;
     store.setDevice({ notify: true });
-    subscribeServerPush(store.device.groups).catch(() => {});
     toast(`${icon('check')}<span>Benachrichtigungen sind aktiv.</span>`, 'ok');
     notifier.show({
       title: 'Takumi 74',
@@ -199,6 +223,16 @@ async function enableNotifications() {
     });
   } else if (permission === 'denied') {
     toast('Benachrichtigungen sind blockiert. Du kannst sie in den Browser-Einstellungen erlauben.', 'bad', 7000);
+  }
+}
+
+// Gruppen/Abo beim Server aktuell halten (nur Server-Modus).
+async function syncServerPush() {
+  if (store.mode !== 'server' || !store.device.notify || notifier.permission !== 'granted') return;
+  try {
+    await subscribeServerPush(store.vapidPublicKey, store.device.groups);
+  } catch (e) {
+    console.warn('Push-Abo konnte nicht aktualisiert werden', e);
   }
 }
 
@@ -228,7 +262,7 @@ function viewWelcome() {
 }
 
 function viewPin() {
-  const showDemoPin = String(store.state.pin) === CONFIG.demoPin;
+  const showDemoPin = store.mode !== 'server' && String(store.state.pin) === CONFIG.demoPin;
   return `
   <main class="narrow">
     <button class="link-btn back-btn" data-action="pin-back">${icon('back')} Zurück</button>
@@ -500,10 +534,15 @@ function viewSchedule() {
   const intro = isTrainer()
     ? `<div class="trainer-hint">${icon('info')}<span><strong>Absagen</strong> schickt sofort eine Push-Nachricht an Eltern &amp; Kinder. Den Trainer änderst du im Auswahlfeld.</span></div>`
     : `${notifyBanner()}${nextTrainingCard()}`;
+  const offline =
+    store.mode === 'server' && store.status === 'offline'
+      ? `<div class="offline-note">${icon('info')}<span>Keine Verbindung – du siehst den zuletzt geladenen Stand.</span></div>`
+      : '';
   return `
   ${topbar()}
   <main class="page">
     <div class="page-top">
+      ${offline}
       ${intro}
       ${weekNav(weekStart)}
       ${weekStrip(weekStart, occs)}
@@ -602,13 +641,22 @@ function viewSettings() {
       <button class="btn btn-ghost btn-block" data-action="to-member">👨‍👩‍👧 Zur Eltern-Ansicht wechseln</button>
       <button class="btn btn-ghost btn-block" data-action="logout">${icon('logout')} Abmelden</button>
     </section>
-    <section class="settings-section">
+    ${
+      store.mode === 'server'
+        ? `<section class="settings-section">
+      <h2>Info</h2>
+      <div class="panel info-panel">
+        <p>${icon('info')}<span>Alle Änderungen gelten <strong>sofort für alle</strong> Eltern &amp; Kinder. Push-Nachrichten gibt es nur bei einer Absage.</span></p>
+      </div>
+    </section>`
+        : `<section class="settings-section">
       <h2>Demo</h2>
       <div class="panel info-panel">
-        <p>${icon('info')}<span><strong>Prototyp:</strong> Alle Daten werden aktuell nur auf diesem Gerät gespeichert. Für echte Push-Nachrichten an alle Eltern wird noch ein Server angebunden.</span></p>
+        <p>${icon('info')}<span><strong>Demo-Modus:</strong> Alle Daten werden nur auf diesem Gerät gespeichert.</span></p>
       </div>
       <button class="btn btn-ghost btn-block" data-action="reset-demo">${icon('refresh')} Demo-Daten zurücksetzen</button>
     </section>`
+    }`
     : `
     <section class="settings-section">
       <h2>Zugang</h2>
@@ -671,12 +719,12 @@ async function cancelFlow(key) {
       <button type="submit" class="btn btn-danger" data-close="confirm" data-primary>Absagen &amp; benachrichtigen</button>
     </div>`);
   if (res?.value !== 'confirm') return;
-  await store.cancelTraining(key, res.form.reason || '');
+  if (!(await attempt(() => store.cancelTraining(key, res.form.reason || '')))) return;
   toast(`${icon('check')}<span><strong>Training abgesagt</strong><br>Push-Nachricht an Eltern &amp; Kinder wurde gesendet.</span>`, 'ok', 5000);
 }
 
 async function reinstateFlow(key) {
-  await store.reinstateTraining(key);
+  if (!(await attempt(() => store.reinstateTraining(key)))) return;
   toast(`${icon('check')}<span>Training findet wieder statt.</span>`, 'ok');
 }
 
@@ -723,7 +771,7 @@ async function trainerChangeFlow(select) {
     render(); // Auswahl zurücksetzen
     return;
   }
-  await store.setTrainers(key, newIds, res.value);
+  if (!(await attempt(() => store.setTrainers(key, newIds, res.value)))) return;
   toast(
     `${icon('check')}<span>${res.value === 'weekly' ? 'Trainer dauerhaft geändert.' : `Vertretung für ${esc(date)} eingetragen.`}</span>`,
     'ok',
@@ -757,7 +805,7 @@ async function deleteTrainerFlow(id) {
       <button type="submit" class="btn btn-danger" data-close="confirm" data-primary>Entfernen</button>
     </div>`);
   if (res?.value !== 'confirm') return;
-  await store.removeTrainer(id, res.form.replacement || null);
+  if (!(await attempt(() => store.removeTrainer(id, res.form.replacement || null)))) return;
   toast(`${icon('check')}<span>${esc(t.name)} wurde entfernt.</span>`, 'ok');
 }
 
@@ -798,11 +846,15 @@ const actions = {
     store.setRole('member');
     go('schedule');
   },
-  'groups-all': () => store.setDevice({ groups: [] }),
+  'groups-all': () => {
+    store.setDevice({ groups: [] });
+    syncServerPush();
+  },
   'toggle-group': (el) => {
     const g = el.dataset.group;
     const groups = store.device.groups || [];
     store.setDevice({ groups: groups.includes(g) ? groups.filter((x) => x !== g) : [...groups, g] });
+    syncServerPush();
   },
   'groups-done': () => {
     ui.groupsOnboarding = false;
@@ -824,8 +876,15 @@ const actions = {
     go('schedule');
   },
   'enable-notify': () => enableNotifications(),
-  'disable-notify': () => store.setDevice({ notify: false }),
+  'disable-notify': async () => {
+    if (store.mode === 'server') await unsubscribeServerPush().catch(() => {});
+    store.setDevice({ notify: false });
+  },
   'test-notify': async () => {
+    if (store.mode === 'server') {
+      if (await attempt(() => sendServerTestPush())) toast(`${icon('check')}<span>Test-Nachricht ist unterwegs.</span>`, 'ok');
+      return;
+    }
     const shown = await notifier.show({
       title: '❌ Training fällt aus',
       body: 'So sieht eine Benachrichtigung aus, wenn ein Training ausfällt.',
@@ -845,7 +904,7 @@ const actions = {
     render();
   },
   'reset-trainer': async (el) => {
-    await store.resetTrainers(el.dataset.key);
+    if (!(await attempt(() => store.resetTrainers(el.dataset.key)))) return;
     toast(`${icon('check')}<span>Standard-Trainer wiederhergestellt.</span>`, 'ok');
   },
   'edit-trainer': (el) => {
@@ -862,18 +921,19 @@ const actions = {
   'delete-trainer': (el) => deleteTrainerFlow(el.dataset.id),
   'reset-demo': () => resetDemoFlow(),
   logout: () => {
-    store.setRole(null);
+    store.logout();
     ui.weekOffset = 0;
     go('welcome');
   },
 };
 
 const forms = {
-  pin: (form) => {
+  pin: async (form) => {
     const pin = form.elements.pin.value.trim();
-    if (store.checkPin(pin)) {
+    let ok = false;
+    if (!(await attempt(async () => (ok = await store.login(pin))))) return;
+    if (ok) {
       ui.pinError = false;
-      store.setRole('trainer');
       go('schedule');
       toast(`${icon('check')}<span>Willkommen im Trainer-Zugang!</span>`, 'ok');
     } else {
@@ -889,14 +949,14 @@ const forms = {
       toast(`${esc(name)} gibt es bereits.`, 'bad');
       return;
     }
-    await store.addTrainer(name);
+    if (!(await attempt(() => store.addTrainer(name)))) return;
     toast(`${icon('check')}<span>${esc(name)} wurde angelegt.</span>`, 'ok');
   },
   'rename-trainer': async (form) => {
     const name = form.elements.name.value.trim();
     if (!name) return;
     ui.editingTrainerId = null;
-    await store.renameTrainer(form.dataset.id, name);
+    await attempt(() => store.renameTrainer(form.dataset.id, name));
   },
   'change-pin': async (form) => {
     const pin = form.elements.pin.value.trim();
@@ -904,7 +964,7 @@ const forms = {
       toast('Die PIN muss aus 4 bis 8 Ziffern bestehen.', 'bad');
       return;
     }
-    await store.setPin(pin);
+    if (!(await attempt(() => store.setPin(pin)))) return;
     form.reset();
     toast(`${icon('check')}<span>PIN wurde geändert.</span>`, 'ok');
   },
@@ -955,6 +1015,12 @@ setInterval(() => {
 // Start
 // ---------------------------------------------------------------------------
 
-render();
-handleNewEvents({ initial: true });
 registerServiceWorker();
+render();
+store.init().finally(() => {
+  seenEventId = store.device[seenKey()] || 0;
+  ready = true;
+  render();
+  handleNewEvents({ initial: true });
+  syncServerPush(); // Abo beim Server auffrischen (z. B. nach Server-Umzug)
+});

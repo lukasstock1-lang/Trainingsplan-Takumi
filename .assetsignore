@@ -1,0 +1,16 @@
+# Nicht als Teil der App ausliefern
+.git
+.github
+.wrangler
+.dev.vars*
+.assetsignore
+.gitignore
+.nojekyll
+node_modules
+server
+docs
+README.md
+package.json
+package-lock.json
+wrangler.toml
+netlify.toml

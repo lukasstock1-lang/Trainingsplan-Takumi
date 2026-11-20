@@ -1,16 +1,21 @@
-// Datenhaltung der App.
+// Datenhaltung der App – zwei Modi:
 //
-// Demo-Modus: Alles liegt im localStorage des Browsers. Mehrere Tabs/Fenster
-// desselben Browsers bleiben über das "storage"-Event synchron – so lässt sich
-// "Trainer sagt ab → Eltern werden benachrichtigt" schon jetzt vorführen.
+// • Server-Modus (Cloudflare): Die Daten liegen auf dem Server und gelten für alle.
+//   Die App lädt sie beim Start, beim Zurückkehren in die App und jede Minute neu.
+//   Eine Absage löst auf dem Server die Push-Nachrichten aus.
 //
-// Später: Die mit "SERVER:" markierten Stellen werden durch API-Aufrufe ersetzt
-// (siehe README, Abschnitt "Nächste Schritte").
+// • Demo-Modus (ohne Server, z. B. GitHub Pages oder lokal): Alles liegt im
+//   localStorage des Browsers. Mehrere Tabs bleiben über das "storage"-Event synchron.
+//
+// Der Modus wird beim Start automatisch erkannt (siehe api.js).
 import { createDefaultState, STATE_VERSION } from './data.js';
+import { api, ApiError, detectMode, getToken, setToken } from './api.js';
 
-const DATA_KEY = 'takumi74.data';
+const DATA_KEY = 'takumi74.data'; // Demo-Daten
+const CACHE_KEY = 'takumi74.server-cache'; // zuletzt geladener Server-Stand
 const DEVICE_KEY = 'takumi74.device';
 const ROLE_KEY = 'takumi74.role';
+const REFRESH_MS = 60000;
 
 // Eindeutige Kennung dieses Tabs – damit der Absender einer Absage
 // nicht zusätzlich die "eingehende" Meldung angezeigt bekommt.
@@ -47,12 +52,14 @@ function write(storage, key, value) {
   }
 }
 
-function loadState() {
+const validState = (s) => s && s.version === STATE_VERSION && Array.isArray(s.sessions) && Array.isArray(s.trainers);
+
+function loadLocalState() {
   const saved = read(local, DATA_KEY);
-  return saved && saved.version === STATE_VERSION ? saved : createDefaultState();
+  return validState(saved) ? saved : createDefaultState();
 }
 
-const DEVICE_DEFAULTS = { groups: [], notify: false, seenEventId: 0, hideNotifyBanner: false };
+const DEVICE_DEFAULTS = { groups: [], notify: false, seenEventId: 0, seenServerEventId: 0, hideNotifyBanner: false };
 
 function loadDevice() {
   return {
@@ -65,7 +72,10 @@ function loadDevice() {
   };
 }
 
-let state = loadState();
+let mode = local?.getItem('takumi74.mode') === 'server' ? 'server' : 'local'; // zuletzt erkannter Modus
+let status = 'ok'; // 'ok' | 'offline'
+let serverConfig = null;
+let state = mode === 'server' && validState(read(local, CACHE_KEY)) ? read(local, CACHE_KEY) : loadLocalState();
 let device = loadDevice();
 const listeners = new Set();
 
@@ -73,10 +83,32 @@ function emit(meta = {}) {
   listeners.forEach((fn) => fn(meta));
 }
 
-function commit() {
-  write(local, DATA_KEY, state); // SERVER: entfällt, der Server ist dann die Quelle der Wahrheit
-  emit();
+const isServer = () => mode === 'server';
+
+// Neuen Stand übernehmen (Server-Modus) bzw. speichern (Demo-Modus).
+function commit(next, meta = {}) {
+  if (next) state = next;
+  write(local, isServer() ? CACHE_KEY : DATA_KEY, state);
+  emit(meta);
 }
+
+// Ruft eine Trainer-Aktion auf dem Server auf. Bei abgelaufener Anmeldung
+// wird zur Eltern-Ansicht gewechselt.
+async function trainerCall(method, path, body) {
+  try {
+    return await api(method, path, body, { auth: true });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) {
+      setToken(null);
+      store.setRole('member');
+    }
+    throw e;
+  }
+}
+
+const occPath = (key, action) => `api/occurrences/${encodeURIComponent(key)}/${action}`;
+
+// ---------- Demo-Modus: lokale Änderungen ----------
 
 const sameIds = (a, b) => a.length === b.length && a.every((id, i) => id === b[i]);
 const unique = (ids) => [...new Set(ids)];
@@ -100,16 +132,66 @@ function slug(name) {
   return `${base || 'trainer'}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+// ---------- Synchronisation ----------
+
 window.addEventListener('storage', (e) => {
   if (local && e.storageArea !== local) return;
-  if (e.key === DATA_KEY || e.key === null) {
-    state = loadState();
+  if (!isServer() && (e.key === DATA_KEY || e.key === null)) {
+    state = loadLocalState();
     emit({ external: true });
+  } else if (isServer() && e.key === CACHE_KEY) {
+    const cached = read(local, CACHE_KEY);
+    if (validState(cached)) {
+      state = cached;
+      emit({ external: true });
+    }
   } else if (e.key === DEVICE_KEY) {
     device = { ...loadDevice(), role: device.role };
     emit({ external: true });
   }
 });
+
+let refreshing = null;
+
+async function refresh() {
+  if (!isServer()) return;
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    try {
+      const next = await api('GET', 'api/state');
+      const changed = JSON.stringify(next) !== JSON.stringify(state);
+      const wasOffline = status !== 'ok';
+      status = 'ok';
+      if (changed) commit(next, { external: true });
+      else if (wasOffline) emit({ external: true });
+    } catch {
+      if (status !== 'offline') {
+        status = 'offline';
+        emit({ external: true });
+      }
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+function startSync() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refresh();
+  });
+  window.addEventListener('online', refresh);
+  window.addEventListener('focus', refresh);
+  // Der Service Worker meldet eingehende Push-Nachrichten → sofort neu laden.
+  navigator.serviceWorker?.addEventListener('message', (e) => {
+    if (e.data?.type === 'refresh') refresh();
+  });
+  setInterval(() => {
+    if (document.visibilityState === 'visible') refresh();
+  }, REFRESH_MS);
+}
+
+// ---------- Öffentliche Schnittstelle ----------
 
 export const store = {
   get state() {
@@ -118,17 +200,46 @@ export const store = {
   get device() {
     return device;
   },
+  get mode() {
+    return mode;
+  },
+  get status() {
+    return status;
+  },
+  get vapidPublicKey() {
+    return serverConfig?.vapidPublicKey || null;
+  },
 
   subscribe(fn) {
     listeners.add(fn);
     return () => listeners.delete(fn);
   },
 
+  // Erkennt den Modus und lädt im Server-Modus die aktuellen Daten.
+  async init() {
+    const detected = await detectMode();
+    serverConfig = detected.config;
+    if (detected.mode !== mode) {
+      mode = detected.mode;
+      const cached = read(local, CACHE_KEY);
+      state = isServer() ? (validState(cached) ? cached : createDefaultState()) : loadLocalState();
+    }
+    if (isServer()) {
+      if (!detected.online) status = 'offline';
+      // Trainer-Rolle ohne gültige Server-Anmeldung (z. B. aus dem Demo-Modus) zurücksetzen
+      if (device.role === 'trainer' && !getToken()) this.setRole('member');
+      await refresh();
+      startSync();
+    }
+    emit({ external: true });
+  },
+
+  refresh,
+
   // ---------- Trainings ----------
 
-  // SERVER: POST /api/occurrences/{key}/cancel { reason }
-  // → Server speichert die Absage und verschickt Web-Push an alle Abonnenten.
   async cancelTraining(key, reason = '') {
+    if (isServer()) return commit(await trainerCall('POST', occPath(key, 'cancel'), { reason, origin: TAB_ID }));
     const ex = exceptionFor(key);
     ex.canceled = true;
     ex.reason = reason.trim();
@@ -136,11 +247,11 @@ export const store = {
     const event = { id: ++state.lastEventId, type: 'canceled', key, reason: ex.reason, at: ex.canceledAt, origin: TAB_ID };
     state.events = [...state.events, event].slice(-50);
     commit();
-    return event;
   },
 
-  // SERVER: DELETE /api/occurrences/{key}/cancel  (bewusst ohne Push)
+  // Bewusst ohne Push-Nachricht.
   async reinstateTraining(key) {
+    if (isServer()) return commit(await trainerCall('DELETE', occPath(key, 'cancel')));
     const ex = state.exceptions[key];
     if (ex) {
       delete ex.canceled;
@@ -152,15 +263,15 @@ export const store = {
   },
 
   // scope "once" = nur dieser Termin (Vertretung), "weekly" = dauerhaft jede Woche.
-  // SERVER: PUT /api/occurrences/{key}/trainers bzw. PUT /api/sessions/{id}/trainers
   async setTrainers(key, trainerIds, scope) {
     const ids = unique(trainerIds);
-    const session = state.sessions.find((s) => s.id === key.split('@')[0]);
-    if (!session) return;
+    if (isServer()) return commit(await trainerCall('PUT', occPath(key, 'trainers'), { trainerIds: ids, scope }));
+    const s = state.sessions.find((x) => x.id === key.split('@')[0]);
+    if (!s) return;
     if (scope === 'weekly') {
-      session.trainerIds = ids;
+      s.trainerIds = ids;
       if (state.exceptions[key]) delete state.exceptions[key].trainerIds;
-    } else if (sameIds(ids, session.trainerIds)) {
+    } else if (sameIds(ids, s.trainerIds)) {
       if (state.exceptions[key]) delete state.exceptions[key].trainerIds;
     } else {
       exceptionFor(key).trainerIds = ids;
@@ -170,6 +281,7 @@ export const store = {
   },
 
   async resetTrainers(key) {
+    if (isServer()) return commit(await trainerCall('DELETE', occPath(key, 'trainers')));
     if (state.exceptions[key]) delete state.exceptions[key].trainerIds;
     dropEmptyException(key);
     commit();
@@ -177,24 +289,25 @@ export const store = {
 
   // ---------- Trainer verwalten ----------
 
-  // SERVER: POST /api/trainers { name }
   async addTrainer(name) {
-    const trainer = { id: slug(name), name: name.trim() };
-    state.trainers = [...state.trainers, trainer];
+    if (isServer()) return commit(await trainerCall('POST', 'api/trainers', { name }));
+    state.trainers = [...state.trainers, { id: slug(name), name: name.trim() }];
     commit();
-    return trainer;
   },
 
-  // SERVER: PATCH /api/trainers/{id} { name }
   async renameTrainer(id, name) {
+    if (isServer()) return commit(await trainerCall('PATCH', `api/trainers/${encodeURIComponent(id)}`, { name }));
     const t = state.trainers.find((x) => x.id === id);
     if (t) t.name = name.trim();
     commit();
   },
 
   // Entfernt einen Trainer; seine Trainings übernimmt optional ein Nachfolger.
-  // SERVER: DELETE /api/trainers/{id}?replacement={id}
   async removeTrainer(id, replacementId = null) {
+    if (isServer()) {
+      const q = replacementId ? `?replacement=${encodeURIComponent(replacementId)}` : '';
+      return commit(await trainerCall('DELETE', `api/trainers/${encodeURIComponent(id)}${q}`));
+    }
     const replace = (ids) => unique(ids.flatMap((t) => (t === id ? (replacementId ? [replacementId] : []) : [t])));
     state.sessions.forEach((s) => {
       s.trainerIds = replace(s.trainerIds);
@@ -210,19 +323,43 @@ export const store = {
     return state.sessions.filter((s) => s.trainerIds.includes(id)).length;
   },
 
-  // ---------- Zugang & Demo ----------
+  // ---------- Zugang ----------
 
-  // SERVER: Anmeldung läuft später über den Server (z. B. Trainer-Login), nicht über eine lokale PIN.
-  checkPin(pin) {
-    return String(pin) === String(state.pin);
+  // true = angemeldet, false = falsche PIN; andere Fehler werden geworfen.
+  async login(pin) {
+    if (isServer()) {
+      try {
+        const { token } = await api('POST', 'api/login', { pin: String(pin) });
+        setToken(token);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 403) return false;
+        throw e;
+      }
+    } else if (String(pin) !== String(state.pin)) {
+      return false;
+    }
+    this.setRole('trainer');
+    return true;
+  },
+
+  logout() {
+    setToken(null);
+    this.setRole(null);
   },
 
   async setPin(pin) {
+    if (isServer()) {
+      const { token } = await trainerCall('PUT', 'api/pin', { pin: String(pin) });
+      setToken(token);
+      return;
+    }
     state.pin = String(pin);
     commit();
   },
 
+  // Nur im Demo-Modus
   async resetDemo() {
+    if (isServer()) return;
     const lastEventId = state.lastEventId; // Ereignis-Nummern laufen weiter, damit andere Tabs nichts verpassen
     state = { ...createDefaultState(), lastEventId };
     commit();
