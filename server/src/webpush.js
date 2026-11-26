@@ -32,28 +32,39 @@ async function hmacSha256(key, data) {
   return new Uint8Array(await crypto.subtle.sign('HMAC', k, data));
 }
 
-// HKDF (RFC 5869) für Ausgabelängen bis 32 Byte.
-async function hkdf(salt, ikm, info, length) {
-  const prk = await hmacSha256(salt, ikm);
-  const okm = await hmacSha256(prk, concat(info, new Uint8Array([1])));
-  return okm.slice(0, length);
+// HKDF-Expand (RFC 5869) für Ausgabelängen bis 32 Byte.
+async function hkdfExpand(prk, info, length) {
+  return (await hmacSha256(prk, concat(info, new Uint8Array([1])))).slice(0, length);
+}
+
+const INFO_WEBPUSH = encoder.encode('WebPush: info\0');
+const INFO_CEK = encoder.encode('Content-Encoding: aes128gcm\0');
+const INFO_NONCE = encoder.encode('Content-Encoding: nonce\0');
+
+// Schlüsselpaar des Servers für eine Nachricht. Für ein Paket von Empfängern
+// wird es wiederverwendet (spart Rechenzeit); Salz und Schlüssel bleiben je
+// Empfänger verschieden, da sich das ECDH-Geheimnis pro Gerät unterscheidet.
+export async function createSenderKeys() {
+  const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  return { privateKey: pair.privateKey, publicRaw: new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)) };
 }
 
 // Verschlüsselt die Nachricht für ein Abo (p256dh + auth aus der PushSubscription).
-export async function encryptPayload(payload, p256dh, authSecret) {
+export async function encryptPayload(payload, p256dh, authSecret, sender) {
   const uaPublic = b64url.decode(p256dh);
   const auth = b64url.decode(authSecret);
+  const { privateKey, publicRaw: asPublic } = sender || (await createSenderKeys());
 
-  const asKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
-  const asPublic = new Uint8Array(await crypto.subtle.exportKey('raw', asKeys.publicKey));
   const uaKey = await crypto.subtle.importKey('raw', uaPublic, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
-  const ecdhSecret = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, asKeys.privateKey, 256));
+  const ecdhSecret = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, privateKey, 256));
 
-  const keyInfo = concat(encoder.encode('WebPush: info\0'), uaPublic, asPublic);
-  const ikm = await hkdf(auth, ecdhSecret, keyInfo, 32);
+  // IKM = HKDF(auth, ecdh_secret, "WebPush: info" || ua_public || as_public, 32)
+  const prkKey = await hmacSha256(auth, ecdhSecret);
+  const ikm = await hkdfExpand(prkKey, concat(INFO_WEBPUSH, uaPublic, asPublic), 32);
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const cek = await hkdf(salt, ikm, encoder.encode('Content-Encoding: aes128gcm\0'), 16);
-  const nonce = await hkdf(salt, ikm, encoder.encode('Content-Encoding: nonce\0'), 12);
+  const prk = await hmacSha256(salt, ikm);
+  const cek = await hkdfExpand(prk, INFO_CEK, 16);
+  const nonce = await hkdfExpand(prk, INFO_NONCE, 12);
 
   const plaintext = concat(encoder.encode(payload), new Uint8Array([2])); // 0x02 = letzter Datensatz
   const aesKey = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
@@ -93,14 +104,14 @@ export async function createVapidJwt(audience, vapid) {
 
 // Schickt eine Push-Nachricht. Gibt den HTTP-Status des Push-Dienstes zurück
 // (201 = angenommen, 404/410 = Abo existiert nicht mehr).
-export async function sendWebPush(subscription, payload, { vapid, jwtCache, ttl = 86400, urgency = 'high' }) {
+export async function sendWebPush(subscription, payload, { vapid, jwtCache, sender, ttl = 86400, urgency = 'high' }) {
   const audience = new URL(subscription.endpoint).origin;
   let jwt = jwtCache?.get(audience);
   if (!jwt) {
     jwt = await createVapidJwt(audience, vapid);
     jwtCache?.set(audience, jwt);
   }
-  const body = await encryptPayload(payload, subscription.p256dh, subscription.auth);
+  const body = await encryptPayload(payload, subscription.p256dh, subscription.auth, sender);
   const res = await fetch(subscription.endpoint, {
     method: 'POST',
     headers: {

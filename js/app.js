@@ -13,6 +13,8 @@ import {
   occDateLabel,
   occurrenceByKey,
   occurrencesForWeek,
+  firstUpcomingWeek,
+  locationOf,
   timeLabel,
   trainerNames,
 } from './schedule.js';
@@ -37,6 +39,7 @@ const ui = {
   editingTrainerId: null, // Trainer, der gerade umbenannt wird
   pinError: false,
   groupsOnboarding: false,
+  openRsvps: new Set(), // aufgeklappte Rückmelde-Listen (Trainer)
 };
 
 let seenEventId = 0;
@@ -334,25 +337,51 @@ function topbar() {
   </header>`;
 }
 
-function notifyBanner() {
-  const d = store.device;
-  if (d.hideNotifyBanner) return '';
-  if (d.notify && notifier.permission === 'granted') return '';
+// Hinweis „Als App installieren“ (Android: Knopf, iPhone: Anleitung)
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  if (ui.view === 'schedule') render();
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  store.setDevice({ hideInstallBanner: true });
+});
 
-  if (!notifier.supported) {
-    if (!(isIos() && !isStandalone())) return '';
+function installBanner() {
+  if (isStandalone() || store.device.hideInstallBanner) return '';
+  if (installPrompt) {
     return `
     <div class="banner">
-      <div class="banner-icon">${icon('bell')}</div>
-      <div class="banner-text"><strong>Benachrichtigungen auf dem iPhone</strong><span>Tippe auf „Teilen“ → „Zum Home-Bildschirm“ und öffne die App dann von dort.</span></div>
-      <button class="icon-btn sm" data-action="hide-banner" aria-label="Hinweis ausblenden">${icon('x')}</button>
+      <div class="banner-icon">${logo()}</div>
+      <div class="banner-text"><strong>Als App speichern</strong><span>Dann ist der Trainingsplan immer mit einem Tipp da.</span></div>
+      <div class="banner-actions">
+        <button class="btn btn-primary btn-sm" data-action="install-app">Installieren</button>
+        <button class="icon-btn sm" data-action="hide-install" aria-label="Hinweis ausblenden">${icon('x')}</button>
+      </div>
     </div>`;
   }
+  if (isIos()) {
+    return `
+    <div class="banner">
+      <div class="banner-icon">${logo()}</div>
+      <div class="banner-text"><strong>Als App speichern</strong><span>Tippe unten auf ${icon('share', 'inline')} <b>Teilen</b> und dann auf <b>„Zum Home-Bildschirm“</b>. Danach die App vom Home-Bildschirm öffnen – nur so kommen Benachrichtigungen an.</span></div>
+      <button class="icon-btn sm" data-action="hide-install" aria-label="Hinweis ausblenden">${icon('x')}</button>
+    </div>`;
+  }
+  return '';
+}
+
+function notifyBanner() {
+  const d = store.device;
+  if (d.hideNotifyBanner || !notifier.supported) return ''; // iPhone ohne Installation: siehe installBanner()
+  if (d.notify && notifier.permission === 'granted') return '';
   if (notifier.permission === 'denied') {
     return `
     <div class="banner">
       <div class="banner-icon">${icon('bell')}</div>
-      <div class="banner-text"><strong>Benachrichtigungen blockiert</strong><span>Erlaube sie in den Browser-Einstellungen, um bei Ausfällen informiert zu werden.</span></div>
+      <div class="banner-text"><strong>Benachrichtigungen blockiert</strong><span>Erlaube sie in den Einstellungen deines Handys, um bei Ausfällen informiert zu werden.</span></div>
       <button class="icon-btn sm" data-action="hide-banner" aria-label="Hinweis ausblenden">${icon('x')}</button>
     </div>`;
   }
@@ -367,56 +396,106 @@ function notifyBanner() {
   </div>`;
 }
 
+// Zu-/Absage (freiwillig) – nur für Eltern & Kinder, nur bei kommenden Trainings
+function rsvpRow(occ, { big = false } = {}) {
+  if (isTrainer() || occ.canceled || occ.isPast) return '';
+  const mine = store.myRsvp(occ.key);
+  const question =
+    mine === 'yes' ? 'Du hast zugesagt 👍' : mine === 'no' ? 'Du hast abgesagt' : 'Kommst du? <small>(freiwillig)</small>';
+  return `
+  <div class="rsvp ${big ? 'rsvp-big' : ''}">
+    <span class="rsvp-question">${question}</span>
+    <div class="rsvp-buttons">
+      <button class="rsvp-btn yes ${mine === 'yes' ? 'is-on' : ''}" data-action="rsvp" data-key="${occ.key}" data-status="yes" aria-pressed="${mine === 'yes'}">Ich komme</button>
+      <button class="rsvp-btn no ${mine === 'no' ? 'is-on' : ''}" data-action="rsvp" data-key="${occ.key}" data-status="no" aria-pressed="${mine === 'no'}">Ich komme nicht</button>
+    </div>
+  </div>`;
+}
+
+// Für Trainer: wer kommt / wer kommt nicht
+function rsvpSummary(occ) {
+  if (!isTrainer() || occ.canceled) return '';
+  const list = store.rsvpsFor(occ.key);
+  if (!list.length) return `<div class="rsvp-summary is-empty">${icon('users')}<span>Noch keine Rückmeldungen</span></div>`;
+  const yes = list.filter((r) => r.status === 'yes');
+  const no = list.filter((r) => r.status === 'no');
+  const names = (rows) => `<ul>${rows.map((r) => `<li>${esc(r.name)}</li>`).join('')}</ul>`;
+  return `
+  <details class="rsvp-summary" data-key="${occ.key}" ${ui.openRsvps.has(occ.key) ? 'open' : ''}>
+    <summary>${icon('users')}<span><strong>${yes.length}</strong> ${yes.length === 1 ? 'kommt' : 'kommen'} · <strong>${no.length}</strong> ${no.length === 1 ? 'kommt' : 'kommen'} nicht</span>${icon('chevR', 'summary-chev')}</summary>
+    <div class="rsvp-lists">
+      ${yes.length ? `<div class="rsvp-list yes"><h4>${icon('check')} Kommen</h4>${names(yes)}</div>` : ''}
+      ${no.length ? `<div class="rsvp-list no"><h4>${icon('x')} Kommen nicht</h4>${names(no)}</div>` : ''}
+    </div>
+  </details>`;
+}
+
+function locationLine(occ) {
+  const loc = locationOf(store.state, occ.locationId);
+  return `<li class="${occ.locationMoved ? 'moved' : ''}">${icon('pin')}<span><a href="${mapsUrl(loc.address)}" target="_blank" rel="noopener">${esc(loc.address)}</a>${
+    occ.locationMoved ? ' <span class="pill pill-sub">Anderer Ort</span>' : ''
+  }</span></li>`;
+}
+
 function nextTrainingCard() {
   const occ = nextOccurrence(store.state, isVisible);
   if (!occ) return '';
   const s = occ.session;
   const when = relativeDay(occ.day);
   const running = !occ.canceled && new Date() >= occ.start;
+  const loc = locationOf(store.state, occ.locationId);
   return `
   <section class="next ${occ.canceled ? 'is-canceled' : 'is-ok'}" aria-label="Nächstes Training">
-    <div class="next-status" aria-hidden="true">${icon(occ.canceled ? 'x' : 'check')}</div>
-    <div class="next-body">
-      <span class="next-label">Dein nächstes Training</span>
-      <strong class="next-title">${esc(s.title)}</strong>
-      <span class="next-when">${esc(when)} · ${esc(timeLabel(s))}</span>
-      <span class="next-verdict">${occ.canceled ? `Fällt aus${occ.reason ? ` – ${esc(occ.reason)}` : ''}` : running ? 'Läuft gerade' : 'Findet statt'}</span>
+    <div class="next-main">
+      <div class="next-status" aria-hidden="true">${icon(occ.canceled ? 'x' : 'check')}</div>
+      <div class="next-body">
+        <span class="next-label">Dein nächstes Training</span>
+        <strong class="next-title">${esc(s.title)}</strong>
+        <span class="next-when">${esc(when)} · ${esc(timeLabel(s))}</span>
+        ${occ.locationMoved && !occ.canceled ? `<span class="next-moved">${icon('pin')} Anderer Ort: ${esc(loc.label)}</span>` : ''}
+        <span class="next-verdict">${occ.canceled ? `Fällt aus${occ.reason ? ` – ${esc(occ.reason)}` : ''}` : running ? 'Läuft gerade' : 'Findet statt'}</span>
+      </div>
     </div>
+    ${rsvpRow(occ, { big: true })}
   </section>`;
 }
+
+// Vergangene Wochen gibt es nicht mehr – die erste Woche mit kommenden Trainings
+const minWeekOffset = () => firstUpcomingWeek(store.state, isVisible);
 
 function weekNav(weekStart) {
   const end = addDays(weekStart, 6);
   const o = ui.weekOffset;
-  const label =
-    o === 0 ? 'Diese Woche' : o === 1 ? 'Nächste Woche' : o === -1 ? 'Letzte Woche' : o > 1 ? `In ${o} Wochen` : `Vor ${-o} Wochen`;
+  const min = minWeekOffset();
+  const label = o === 0 ? 'Diese Woche' : o === 1 ? 'Nächste Woche' : `In ${o} Wochen`;
   return `
   <div class="week-nav">
-    <button class="icon-btn" data-action="week" data-delta="-1" aria-label="Vorherige Woche">${icon('chevL')}</button>
+    <button class="icon-btn" data-action="week" data-delta="-1" aria-label="Vorherige Woche" ${o <= min ? 'disabled' : ''}>${icon('chevL')}</button>
     <div class="week-label">
       <strong>${label}</strong>
       <span>KW ${isoWeek(weekStart)} · ${fmt.date(weekStart)} – ${fmt.date(end)}${end.getFullYear()}</span>
     </div>
     <button class="icon-btn" data-action="week" data-delta="1" aria-label="Nächste Woche">${icon('chevR')}</button>
   </div>
-  ${o !== 0 ? `<div class="center"><button class="link-btn" data-action="week-today">Zurück zu dieser Woche</button></div>` : ''}`;
+  ${o > min ? `<div class="center"><button class="link-btn" data-action="week-today">Zurück zur aktuellen Woche</button></div>` : ''}`;
 }
 
 const sectionId = (weekday) => `tag-${isWeekend(weekday) ? 'we' : weekday}`;
 
-function weekStrip(weekStart, occs) {
-  const today = new Date();
+function weekStrip(weekStart, upcoming) {
+  const now = new Date();
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   return `
   <nav class="week-strip" aria-label="Wochenübersicht">
     ${days
       .map((d, i) => {
         const weekday = i + 1;
-        const dayOccs = occs.filter((o) => o.session.weekday === weekday);
+        const dayOccs = upcoming.filter((o) => o.session.weekday === weekday);
         const dots = dayOccs.map((o) => `<i class="dot ${o.canceled ? 'bad' : 'ok'}"></i>`).join('');
-        const has = dayOccs.length > 0 || (weekday === 7 && occs.some((o) => o.session.weekday === 6));
+        const past = addDays(d, 1) <= now;
+        const has = dayOccs.length > 0 || (weekday === 7 && upcoming.some((o) => o.session.weekday === 6));
         return `
-        <button class="ws-day ${sameDay(d, today) ? 'is-today' : ''} ${has ? '' : 'is-empty'}" ${has ? `data-action="scroll-day" data-target="${sectionId(weekday)}"` : 'disabled'} aria-label="${fmt.dayLong(d)}, ${fmt.date(d)}">
+        <button class="ws-day ${sameDay(d, now) ? 'is-today' : ''} ${has ? '' : 'is-empty'} ${past ? 'is-past' : ''}" ${has ? `data-action="scroll-day" data-target="${sectionId(weekday)}"` : 'disabled'} aria-label="${fmt.dayLong(d)}, ${fmt.date(d)}">
           <span class="ws-name">${WEEKDAY_SHORT[weekday]}</span>
           <span class="ws-num">${d.getDate()}</span>
           <span class="ws-dots">${dots}</span>
@@ -428,8 +507,8 @@ function weekStrip(weekStart, occs) {
 }
 
 function statusBadge(occ) {
-  if (occ.canceled) return `<span class="badge badge-bad">${icon('x')} ${occ.isPast ? 'Fiel aus' : 'Fällt aus'}</span>`;
-  return `<span class="badge badge-ok">${icon('check')} ${occ.isPast ? 'Fand statt' : 'Findet statt'}</span>`;
+  if (occ.canceled) return `<span class="badge badge-bad">${icon('x')} Fällt aus</span>`;
+  return `<span class="badge badge-ok">${icon('check')} Findet statt</span>`;
 }
 
 function trainerSelect(occ, index, value, { removable = false, placeholder = false } = {}) {
@@ -446,6 +525,18 @@ function trainerSelect(occ, index, value, { removable = false, placeholder = fal
   </select>`;
 }
 
+function locationSelect(occ) {
+  return `
+  <select class="select ${occ.locationMoved ? 'is-moved' : ''}" data-change="location" data-key="${occ.key}" aria-label="Ort">
+    ${(store.state.locations || [])
+      .map(
+        (l) =>
+          `<option value="${l.id}" ${l.id === occ.locationId ? 'selected' : ''}>${esc(l.label)}${l.id === occ.session.locationId ? ' (Standard)' : ''}</option>`,
+      )
+      .join('')}
+  </select>`;
+}
+
 function trainerControls(occ) {
   const ids = occ.trainerIds;
   const adding = ui.addingTrainerFor === occ.key;
@@ -453,6 +544,7 @@ function trainerControls(occ) {
   const standard = trainerNames(store.state, occ.session.trainerIds);
   return `
   <div class="card-controls">
+    ${rsvpSummary(occ)}
     <div class="control-label">Trainer ${occ.substitute ? '<span class="pill pill-sub">Vertretung</span>' : ''}</div>
     <div class="selects">
       ${ids.map((id, i) => trainerSelect(occ, i, id, { removable: ids.length > 1 })).join('')}
@@ -464,6 +556,9 @@ function trainerControls(occ) {
       ${adding ? `<button class="link-btn" data-action="cancel-trainer-slot">Abbrechen</button>` : ''}
       ${occ.substitute ? `<button class="link-btn" data-action="reset-trainer" data-key="${occ.key}">${icon('refresh')} Standard: ${esc(standard)}</button>` : ''}
     </div>
+    <div class="control-label">Ort ${occ.locationMoved ? '<span class="pill pill-sub">Anderer Ort</span>' : ''}</div>
+    ${locationSelect(occ)}
+    <p class="control-hint">Gilt nur für diesen Termin – Standard bleibt Erlenbach.</p>
     ${
       occ.canceled
         ? `<button class="btn btn-ok btn-block" data-action="reinstate" data-key="${occ.key}">${icon('check')} Findet doch statt</button>`
@@ -474,8 +569,8 @@ function trainerControls(occ) {
 
 function card(occ) {
   const s = occ.session;
-  const cls = ['card', occ.canceled ? 'is-canceled' : 'is-ok', occ.isPast && 'is-past'].filter(Boolean).join(' ');
-  const showControls = isTrainer() && !occ.isPast;
+  const cls = ['card', occ.canceled ? 'is-canceled' : 'is-ok', occ.locationMoved && 'is-moved'].filter(Boolean).join(' ');
+  const trainer = isTrainer();
   return `
   <article class="${cls}">
     <div class="card-head">
@@ -487,25 +582,25 @@ function card(occ) {
     <ul class="card-meta">
       <li>${icon('users')}<span>${esc(s.audience)}</span></li>
       ${
-        showControls
+        trainer
           ? ''
           : `<li>${icon('user')}<span>${esc(trainerNames(store.state, occ.trainerIds))}${occ.substitute ? ' <span class="pill pill-sub">Vertretung</span>' : ''}</span></li>`
       }
-      <li>${icon('pin')}<a href="${mapsUrl(s.location)}" target="_blank" rel="noopener">${esc(s.location)}</a></li>
+      ${locationLine(occ)}
     </ul>
-    ${showControls ? trainerControls(occ) : ''}
+    ${trainer ? trainerControls(occ) : rsvpRow(occ)}
   </article>`;
 }
 
-function daySections(weekStart, occs) {
+function daySections(weekStart, upcoming) {
   const sections = new Map();
-  for (const occ of occs) {
+  for (const occ of upcoming) {
     const id = sectionId(occ.session.weekday);
     if (!sections.has(id)) sections.set(id, { weekday: occ.session.weekday, occs: [] });
     sections.get(id).occs.push(occ);
   }
   if (!sections.size) {
-    return `<div class="empty">${icon('info')}<p>In dieser Woche gibt es kein Training für deine Gruppen.</p></div>`;
+    return `<div class="empty">${icon('info')}<p>In dieser Woche steht kein Training für deine Gruppen an.</p></div>`;
   }
   const today = new Date();
   return `
@@ -529,11 +624,13 @@ function daySections(weekStart, occs) {
 }
 
 function viewSchedule() {
+  ui.weekOffset = Math.max(ui.weekOffset, minWeekOffset());
   const weekStart = addDays(startOfWeek(new Date()), ui.weekOffset * 7);
-  const occs = occurrencesForWeek(store.state, weekStart).filter((o) => isVisible(o.session));
+  // Vergangene Trainings werden ausgeblendet – man sieht immer, was als Nächstes kommt.
+  const upcoming = occurrencesForWeek(store.state, weekStart).filter((o) => isVisible(o.session) && !o.isPast);
   const intro = isTrainer()
-    ? `<div class="trainer-hint">${icon('info')}<span><strong>Absagen</strong> schickt sofort eine Push-Nachricht an Eltern &amp; Kinder. Den Trainer änderst du im Auswahlfeld.</span></div>`
-    : `${notifyBanner()}${nextTrainingCard()}`;
+    ? `<div class="trainer-hint">${icon('info')}<span><strong>Absagen</strong> schickt sofort eine Push-Nachricht an Eltern &amp; Kinder. Trainer und Ort änderst du in den Auswahlfeldern.</span></div>`
+    : `${installBanner()}${notifyBanner()}${nextTrainingCard()}`;
   const offline =
     store.mode === 'server' && store.status === 'offline'
       ? `<div class="offline-note">${icon('info')}<span>Keine Verbindung – du siehst den zuletzt geladenen Stand.</span></div>`
@@ -545,30 +642,27 @@ function viewSchedule() {
       ${offline}
       ${intro}
       ${weekNav(weekStart)}
-      ${weekStrip(weekStart, occs)}
+      ${weekStrip(weekStart, upcoming)}
     </div>
-    ${daySections(weekStart, occs)}
+    ${daySections(weekStart, upcoming)}
   </main>`;
 }
 
 function notifySettings() {
   const on = store.device.notify && notifier.permission === 'granted';
-  let status;
-  let actions;
+  let hint;
+  let disabled = false;
   if (!notifier.supported) {
-    status = isIos() && !isStandalone() ? 'Auf dem iPhone erst „Zum Home-Bildschirm“ hinzufügen.' : 'Von diesem Browser nicht unterstützt.';
-    actions = '';
+    disabled = true;
+    hint =
+      isIos() && !isStandalone()
+        ? 'Auf dem iPhone: Erst „Teilen → Zum Home-Bildschirm“, dann die App vom Home-Bildschirm öffnen.'
+        : 'Dieser Browser unterstützt keine Benachrichtigungen.';
   } else if (notifier.permission === 'denied') {
-    status = 'Im Browser blockiert – bitte in den Browser-Einstellungen erlauben.';
-    actions = '';
-  } else if (on) {
-    status = 'Aktiv – du wirst benachrichtigt, wenn ein Training ausfällt.';
-    actions = `
-      <button class="btn btn-ghost btn-sm" data-action="test-notify">Test senden</button>
-      <button class="btn btn-ghost btn-sm" data-action="disable-notify">Ausschalten</button>`;
+    disabled = true;
+    hint = 'Blockiert – bitte in den Einstellungen deines Handys für diese App erlauben.';
   } else {
-    status = 'Aus';
-    actions = `<button class="btn btn-primary btn-sm" data-action="enable-notify">Aktivieren</button>`;
+    hint = on ? 'An – du bekommst eine Nachricht, sobald ein Training ausfällt.' : 'Aus – du bekommst keine Nachrichten.';
   }
   return `
   <section class="settings-section">
@@ -576,9 +670,10 @@ function notifySettings() {
     <div class="panel">
       <div class="panel-row">
         <div class="row-icon ${on ? 'is-on' : ''}">${icon('bell')}</div>
-        <div class="row-main"><strong>Push bei Ausfall</strong><span>${status}</span></div>
+        <div class="row-main"><strong>Push bei Ausfall</strong><span>${hint}</span></div>
+        <button class="switch ${on ? 'is-on' : ''}" role="switch" aria-checked="${on}" aria-label="Push bei Ausfall" data-action="toggle-notify" ${disabled ? 'disabled' : ''}><span></span></button>
       </div>
-      ${actions ? `<div class="panel-actions">${actions}</div>` : ''}
+      ${on ? `<div class="panel-actions"><button class="link-btn" data-action="test-notify">Test-Nachricht senden</button></div>` : ''}
     </div>
   </section>`;
 }
@@ -619,6 +714,19 @@ function viewSettings() {
     </section>`
     : `
     <section class="settings-section">
+      <h2>Mein Name</h2>
+      <form class="panel" data-form="rsvp-name" autocomplete="off">
+        <div class="panel-row">
+          <div class="row-icon">${icon('user')}</div>
+          <div class="row-main"><strong>Für Zu-/Absagen</strong><span>Nur die Trainer sehen deinen Namen – die anderen Kinder nicht.</span></div>
+        </div>
+        <div class="panel-actions">
+          <input class="input" name="name" value="${esc(store.device.rsvpName)}" maxlength="40" placeholder="z. B. Max oder Max &amp; Lisa" aria-label="Name">
+          <button class="btn btn-primary btn-sm" type="submit">Speichern</button>
+        </div>
+      </form>
+    </section>
+    <section class="settings-section">
       <h2>Meine Gruppen</h2>
       <p class="hint">Nur diese Trainings werden angezeigt und gemeldet.</p>
       ${groupChips()}
@@ -631,7 +739,7 @@ function viewSettings() {
       <form class="panel" data-form="change-pin" autocomplete="off">
         <div class="panel-row">
           <div class="row-icon">${icon('lock')}</div>
-          <div class="row-main"><strong>Trainer-PIN ändern</strong><span>4–8 Ziffern</span></div>
+          <div class="row-main"><strong>Trainer-PIN ändern</strong><span>Gilt für alle Trainer – alle müssen sich danach mit der neuen PIN anmelden.</span></div>
         </div>
         <div class="panel-actions">
           <input class="input" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="Neue PIN" aria-label="Neue PIN" required>
@@ -778,6 +886,45 @@ async function trainerChangeFlow(select) {
   );
 }
 
+async function locationChangeFlow(select) {
+  const key = select.dataset.key;
+  const occ = occurrenceByKey(store.state, key);
+  if (!occ) return;
+  const loc = locationOf(store.state, select.value);
+  if (!(await attempt(() => store.setLocation(key, select.value)))) return;
+  const back = select.value === occ.session.locationId;
+  toast(`${icon('pin')}<span>${back ? `Wieder am Standardort: ${esc(loc.label)}` : `Ort am ${esc(occDateLabel(occ))}: <strong>${esc(loc.label)}</strong>`}</span>`, 'ok');
+}
+
+async function askName() {
+  const res = await openDialog(`
+    <h2 class="sheet-title">Wie heißt du?</h2>
+    <p class="sheet-text">Damit die Trainer wissen, wer kommt. <strong>Nur die Trainer</strong> sehen deinen Namen – die anderen Kinder nicht.</p>
+    <label class="field">
+      <span>Dein Name</span>
+      <input class="input" name="name" maxlength="40" autocomplete="given-name" autofocus placeholder="z. B. Max">
+    </label>
+    <p class="hint">Geschwister? Einfach beide Namen eintragen, z. B. „Max &amp; Lisa“.</p>
+    <div class="sheet-actions">
+      <button type="button" class="btn btn-ghost" data-close="cancel">Abbrechen</button>
+      <button type="submit" class="btn btn-primary" data-close="ok" data-primary>Weiter</button>
+    </div>`);
+  return res?.value === 'ok' ? (res.form.name || '').trim().replace(/\s+/g, ' ') || null : null;
+}
+
+// Zu-/Absage: nochmal auf die gewählte Antwort tippen = zurücknehmen
+async function rsvpFlow(key, status) {
+  const next = store.myRsvp(key) === status ? null : status;
+  if (next && !store.device.rsvpName) {
+    const name = await askName();
+    if (!name) return;
+    if (!(await attempt(() => store.setRsvpName(name)))) return;
+  }
+  if (!(await attempt(() => store.setRsvp(key, next)))) return;
+  const msg = next === 'yes' ? '👍 Super! Die Trainer wissen Bescheid.' : next === 'no' ? 'Danke für die Rückmeldung!' : 'Antwort zurückgenommen.';
+  toast(`<span>${msg}</span>`, 'ok', 2500);
+}
+
 async function deleteTrainerFlow(id) {
   const t = store.state.trainers.find((x) => x.id === id);
   if (!t) return;
@@ -866,7 +1013,7 @@ const actions = {
     render();
   },
   'week-today': () => {
-    ui.weekOffset = 0;
+    ui.weekOffset = minWeekOffset();
     render();
   },
   'scroll-day': (el) => document.getElementById(el.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
@@ -876,6 +1023,20 @@ const actions = {
     go('schedule');
   },
   'enable-notify': () => enableNotifications(),
+  'toggle-notify': async () => {
+    if (store.device.notify && notifier.permission === 'granted') await actions['disable-notify']();
+    else await enableNotifications();
+  },
+  'install-app': async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice.catch(() => ({}));
+    installPrompt = null;
+    if (outcome === 'accepted') store.setDevice({ hideInstallBanner: true });
+    else render();
+  },
+  'hide-install': () => store.setDevice({ hideInstallBanner: true }),
+  rsvp: (el) => rsvpFlow(el.dataset.key, el.dataset.status),
   'disable-notify': async () => {
     if (store.mode === 'server') await unsubscribeServerPush().catch(() => {});
     store.setDevice({ notify: false });
@@ -958,12 +1119,25 @@ const forms = {
     ui.editingTrainerId = null;
     await attempt(() => store.renameTrainer(form.dataset.id, name));
   },
+  'rsvp-name': async (form) => {
+    const name = form.elements.name.value.trim().replace(/\s+/g, ' ');
+    if (!name) return;
+    if (await attempt(() => store.setRsvpName(name))) toast(`${icon('check')}<span>Name gespeichert.</span>`, 'ok');
+  },
   'change-pin': async (form) => {
     const pin = form.elements.pin.value.trim();
     if (!/^\d{4,8}$/.test(pin)) {
       toast('Die PIN muss aus 4 bis 8 Ziffern bestehen.', 'bad');
       return;
     }
+    const ok = await openDialog(`
+      <h2 class="sheet-title">Trainer-PIN ändern?</h2>
+      <p class="sheet-text">Die PIN gilt für <strong>alle Trainer</strong>. Alle anderen Trainer werden abgemeldet und brauchen die neue PIN – bitte gib sie danach an alle weiter.</p>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-ghost" data-close="cancel">Abbrechen</button>
+        <button type="submit" class="btn btn-primary" data-close="confirm" data-primary>PIN ändern</button>
+      </div>`);
+    if (ok?.value !== 'confirm') return;
     if (!(await attempt(() => store.setPin(pin)))) return;
     form.reset();
     toast(`${icon('check')}<span>PIN wurde geändert.</span>`, 'ok');
@@ -985,9 +1159,22 @@ $app.addEventListener('submit', (e) => {
 });
 
 $app.addEventListener('change', (e) => {
-  const el = e.target.closest('[data-change="trainer"]');
-  if (el) trainerChangeFlow(el);
+  const el = e.target.closest('[data-change]');
+  if (el?.dataset.change === 'trainer') trainerChangeFlow(el);
+  if (el?.dataset.change === 'location') locationChangeFlow(el);
 });
+
+// Aufgeklappte Rückmelde-Listen merken (überstehen das Neuzeichnen)
+$app.addEventListener(
+  'toggle',
+  (e) => {
+    const el = e.target;
+    if (!el.matches?.('details.rsvp-summary')) return;
+    if (el.open) ui.openRsvps.add(el.dataset.key);
+    else ui.openRsvps.delete(el.dataset.key);
+  },
+  true,
+);
 
 document.addEventListener('focusout', () => {
   if (!renderPending) return;

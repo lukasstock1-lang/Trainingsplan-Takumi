@@ -782,9 +782,8 @@ a {
 /* Nächstes Training */
 
 .next {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  display: grid;
+  gap: 14px;
   padding: 18px;
   border-radius: var(--radius);
   border: 2px solid var(--ok-line);
@@ -794,6 +793,21 @@ a {
 .next.is-canceled {
   border-color: var(--bad-line);
   background: var(--bad-soft);
+}
+
+.next-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.next-moved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-weight: 800;
+  color: var(--sub);
 }
 
 .next-status {
@@ -1569,4 +1583,230 @@ dialog[open] .sheet {
 
 .offline-note .icon {
   margin-top: 2px;
+}
+
+/* ---------- Ortswechsel ---------- */
+
+.card-meta li.moved {
+  margin: 2px -8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--sub-soft);
+  color: var(--sub);
+  font-weight: 700;
+}
+
+.card-meta li.moved .icon {
+  color: var(--sub);
+}
+
+.select.is-moved {
+  border-color: var(--sub);
+  background-color: var(--sub-soft);
+}
+
+.control-hint {
+  margin-top: -4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- Zu-/Absagen ---------- */
+
+.rsvp {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1.5px dashed var(--line);
+}
+
+.next .rsvp {
+  margin-top: 0;
+  border-top-color: var(--ok-line);
+}
+
+.rsvp-question {
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.rsvp-question small {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.rsvp-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.rsvp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: clamp(13px, 3.8vw, 16px);
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.rsvp-btn .icon {
+  stroke-width: 3;
+}
+
+.rsvp-btn.yes.is-on {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+
+.rsvp-btn.no.is-on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--on-ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  .rsvp-btn.yes.is-on {
+    color: #141211;
+  }
+}
+
+.rsvp-big .rsvp-btn {
+  min-height: 54px;
+}
+
+/* Rückmeldungen für Trainer */
+.rsvp-summary {
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 15px;
+}
+
+.rsvp-summary summary,
+.rsvp-summary.is-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.rsvp-summary.is-empty {
+  color: var(--muted);
+  cursor: default;
+}
+
+.rsvp-summary summary::-webkit-details-marker {
+  display: none;
+}
+
+.rsvp-summary .summary-chev {
+  margin-left: auto;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.rsvp-summary[open] .summary-chev {
+  transform: rotate(90deg);
+}
+
+.rsvp-lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.rsvp-list h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rsvp-list.yes h4 {
+  color: var(--ok);
+}
+
+.rsvp-list.no h4 {
+  color: var(--muted);
+}
+
+.rsvp-list ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* ---------- Schalter ---------- */
+
+.switch {
+  position: relative;
+  width: 56px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background 0.2s ease;
+}
+
+.switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+  transition: transform 0.2s ease;
+}
+
+.switch.is-on {
+  background: var(--ok);
+}
+
+.switch.is-on span {
+  transform: translateX(24px);
+}
+
+.switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- Sonstiges ---------- */
+
+.ws-day.is-past {
+  opacity: 0.35;
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.icon.inline {
+  width: 1em;
+  height: 1em;
+  vertical-align: -2px;
+}
+
+.banner-icon .logo {
+  width: 28px;
+  height: 28px;
+  color: var(--brand);
 }

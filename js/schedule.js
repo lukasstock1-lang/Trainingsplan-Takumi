@@ -26,6 +26,8 @@ export function buildOccurrence(state, session, day, now = new Date()) {
     reason: ex.reason || '',
     trainerIds: ex.trainerIds || session.trainerIds,
     substitute: !!ex.trainerIds,
+    locationId: ex.locationId || session.locationId,
+    locationMoved: !!ex.locationId && ex.locationId !== session.locationId,
     start,
     end,
     isPast: now >= end,
@@ -66,6 +68,18 @@ export function occDateLabel(occ) {
     return `Wochenende ${fmt.date(occ.day)} – ${fmt.date(addDays(occ.day, 1))}`;
   }
   return fmt.dayDate(occ.day);
+}
+
+// Ort eines Termins (Fallback: Standardort Erlenbach)
+export function locationOf(state, id) {
+  const list = state.locations || [];
+  return list.find((l) => l.id === id) || list[0] || { id, label: id, address: id };
+}
+
+// Erste Woche, in der noch ein Training ansteht (0 = diese Woche, 1 = nächste …)
+export function firstUpcomingWeek(state, isVisible, now = new Date()) {
+  const thisWeek = occurrencesForWeek(state, startOfWeek(now), now);
+  return thisWeek.some((o) => !o.isPast && isVisible(o.session)) ? 0 : 1;
 }
 
 export function trainerNames(state, ids) {

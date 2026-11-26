@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "deploy": "wrangler deploy",
     "test": "node --test server/test/*.test.js"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "4.165.0"
   }
 }

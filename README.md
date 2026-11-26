@@ -2,124 +2,87 @@
 
 Eine einfache App für den Trainingsplan von **Takumi 74**. Fällt ein Training aus, bekommen Eltern und Kinder sofort eine Push-Nachricht. Bisher lief das nur über den WhatsApp-Chat.
 
-> **Status: Prototyp zum Präsentieren.** Die App läuft komplett im Browser und speichert alles lokal auf dem Gerät. Für echte Push-Nachrichten an alle Eltern wird noch ein Server angebunden (siehe [Nächste Schritte](#nächste-schritte-server)).
+Die App läuft auf **Android und iPhone** als Web-App. Man verteilt einfach einen Link und legt die App auf den Home-Bildschirm, ein App Store ist nicht nötig.
 
-| Eltern & Kinder | Push bei Ausfall | Trainer-Zugang | Training absagen |
+➡️ **Veröffentlichen auf Cloudflare:** siehe [ANLEITUNG-CLOUDFLARE.md](ANLEITUNG-CLOUDFLARE.md)
+
+| Eltern & Kinder | Zu-/Absagen | Trainer-Ansicht | Training absagen |
 |---|---|---|---|
-| ![Eltern](docs/screenshots/03-eltern-woche.png) | ![Push](docs/screenshots/07-eltern-push.png) | ![Trainer](docs/screenshots/04-trainer-woche.png) | ![Absagen](docs/screenshots/05-absagen-dialog.png) |
+| ![Eltern](docs/screenshots/03-eltern-woche.png) | ![Zusagen](docs/screenshots/07-zu-absagen.png) | ![Trainer](docs/screenshots/04-trainer-woche.png) | ![Absagen](docs/screenshots/05-absagen-dialog.png) |
 
 ## Funktionen
 
-### Zwei Zugänge
-- **Eltern & Kinder** sehen den Plan nur an und werden benachrichtigt.
-  - Großes Feld **„Dein nächstes Training“**: Auf einen Blick sieht man, ob es stattfindet (grün ✓) oder ausfällt (rot ✕).
-  - Optional nur die **eigenen Gruppen** anzeigen, z. B. nur „Takumi Shoshin Gruppe“.
-- **Trainer** (mit PIN geschützt, Demo-PIN `7474`)
-  - **Training absagen** mit optionalem Grund (Schnellauswahl: Krankheit, Halle gesperrt, Ferien …). Eltern & Kinder bekommen **sofort eine Push-Nachricht**.
-  - **Trainer per Auswahlfeld ändern**, entweder *nur für diesen Termin* (Vertretung) oder *jede Woche* (dauerhafter Wechsel). Auch mehrere Trainer pro Training sind möglich (wie bei der Shoshin Gruppe).
-  - Eine Absage lässt sich mit **„Findet doch statt“** zurücknehmen. Dabei wird bewusst keine Push-Nachricht verschickt.
-  - **Einstellungen:** neue Trainer anlegen, umbenennen, entfernen (mit Auswahl, wer die Trainings übernimmt) und die PIN ändern.
+### Für Eltern & Kinder
+- Feld **„Dein nächstes Training“**: Man sieht sofort, ob es stattfindet (grün ✓) oder ausfällt (rot ✕).
+- **Push-Nachricht nur bei Ausfall**. Sie lässt sich in den Einstellungen per Schalter ein- und ausschalten.
+- **Zu-/Absagen** mit „Ich komme / Ich komme nicht“ bei jedem Training. Das ist freiwillig und jederzeit änderbar, den Namen sehen nur die Trainer.
+- **Meine Gruppen**: Auf Wunsch werden nur die eigenen Trainings angezeigt und gemeldet.
+- **Vergangene Trainings werden ausgeblendet.** Beim Öffnen sieht man immer, was als Nächstes kommt.
+- Ein **anderer Ort** (z. B. Neckarstadion Ilvesheim) ist farbig markiert. Ein Tipp auf die Adresse öffnet Google Maps.
 
-### Kalender
-- Der Trainingsplan aus dem PDF ist hinterlegt und gilt automatisch für **jede Woche** mit echtem Datum (KW, Wochentage, „Heute“).
-- Mit den Pfeilen blättert man zwischen den Wochen. Eine Absage gilt nur für den einen Termin.
-- **Farben:** grün = findet statt, rot (durchgestrichen) = fällt aus, blass = vorbei.
-- Ein Tipp auf die Adresse öffnet Google Maps.
+### Für Trainer (gemeinsame PIN)
+- **Training absagen** mit optionalem Grund. Eltern & Kinder bekommen sofort eine Push-Nachricht. „Findet doch statt“ nimmt die Absage zurück, ohne Push.
+- **Trainer per Auswahlfeld ändern**: nur für diesen Termin (Vertretung) oder jede Woche.
+- **Ort per Auswahlfeld ändern**, nur für diesen Termin. Standard bleibt immer Erlenbach.
+- **Rückmeldungen** pro Training: wer kommt und wer nicht.
+- **Einstellungen:** Trainer anlegen, umbenennen und entfernen (mit Nachfolger), Trainer-PIN ändern.
 
-### Push-Nachrichten
-- **Nur bei einem Ausfall.** Ein Trainerwechsel oder das Zurücknehmen einer Absage löst keine Nachricht aus.
-- Inhalt, z. B.:
-  > ❌ **Training fällt aus**
-  > Takumi Shoshin Gruppe
-  > Mo, 23.11. · 16:30 – 18:00 Uhr
-  > Grund: Halle gesperrt
+### Trainingsplan
+| Tag | Training | Zeit | Trainer |
+|---|---|---|---|
+| Montag | Takumi Shoshin Gruppe (ab 5 J.) | 16:30–18:00 | Djego Wabingga & Ruwantha de Silva |
+| Montag | Takumi Nachwuchskader | 17:00–18:00 | Sarah Baumgärtner |
+| Montag | Takumi Wettkampfkader 1 | 18:00–19:30 | Lena Staiger |
+| Montag | Takumi Wettkampfkader 2 | 19:00–20:30 | Lena Staiger |
+| Dienstag | Erwachsenentraining | 18:00–19:15 | Ruwantha de Silva |
+| Mittwoch | Takumi Nachwuchskader | 16:00–17:30 | Lena Staiger |
+| Mittwoch | Takumi Wettkampfkader | 17:00–19:00 | Lena Staiger |
+| Mittwoch | Takumi Athletikgruppe (Talstraße 40) | 19:15–20:15 | Florian Staiger |
+| Freitag | KVBW Landesstützpunkt | 17:00–19:00 | Lena Staiger |
+| Freitag | Takumi Teamtraining | 19:00–20:00 | Lena Staiger |
+| Wochenende | Wettkampftraining | nach Vereinbarung | Lena Staiger |
 
-### Gemacht für Handy und Kinder
-- Große Schrift und Tippflächen, klare Farben mit Symbolen (✓ / ✕) statt nur Farbe.
-- Als **App installierbar** (PWA): auf dem Startbildschirm, ohne App Store.
-- Heller und dunkler Modus. Auf dem Laptop oder Beamer stehen die Tage nebeneinander wie im PDF.
+Ort ist, wenn nicht anders angegeben, Friedenstraße 46, 74235 Erlenbach. Der Plan steht in [`js/data.js`](js/data.js). Neue Trainings dort eintragen, sie erscheinen nach dem nächsten Deploy automatisch.
 
-## Demo starten
+## Aufbau
 
-Die App braucht keinen Build-Schritt. Es reicht ein einfacher Webserver im Projektordner:
+```
+index.html, css/, js/, icons/, sw.js, manifest.webmanifest   → die App (läuft im Browser, installierbar)
+server/src/index.js     → Cloudflare Worker: API unter /api/, Push-Versand, tägliches Aufräumen
+server/src/setup.js     → richtet Datenbank, Startdaten und Push-Schlüssel beim ersten Start selbst ein
+server/src/webpush.js   → Web-Push (VAPID, aes128gcm) ohne externe Bibliotheken
+server/test/            → Server-Tests (npm test)
+wrangler.toml           → Cloudflare-Konfiguration
+```
+
+- **Server-Modus** (auf Cloudflare): Die Daten liegen in einer D1-Datenbank und gelten für alle. Die Trainer-PIN wird auf dem Server geprüft, mit Schutz gegen Raten.
+- **Demo-Modus** (ohne Server, z. B. GitHub Pages oder `python3 -m http.server`): Alles bleibt auf dem Gerät. Demo-PIN `7474`.
+
+Die App erkennt den Modus selbst.
+
+## Entwickeln
 
 ```bash
-python3 -m http.server 8080
-# oder
-npx serve .
+npm install
+npm run dev      # lokaler Server mit Datenbank: http://localhost:8787 (PIN aus .dev.vars: TRAINER_PIN=…)
+npm test         # Server-Tests
+npm run deploy   # auf Cloudflare veröffentlichen (vorher: npx wrangler login)
 ```
 
-Danach im Browser **http://localhost:8080** öffnen.
+Für `npm run dev` eine Datei `.dev.vars` mit `TRAINER_PIN=1234` anlegen. Sie wird nicht eingecheckt.
 
-> Wichtig: Die Datei `index.html` nicht direkt per Doppelklick öffnen (`file://`). Service Worker und Benachrichtigungen funktionieren nur über `http://localhost` oder `https://`.
+## API (Kurzüberblick)
 
-### Tipps für die Präsentation
-1. **Zwei Fenster nebeneinander** öffnen (gleicher Browser): links „Eltern & Kinder“, rechts „Trainer“ (Einstellungen → Zum Trainer-Zugang, PIN `7474`).
-2. Im Eltern-Fenster auf **„Aktivieren“** tippen und Benachrichtigungen erlauben.
-3. Im Trainer-Fenster ein Training **absagen**. Im Eltern-Fenster wird es sofort rot, und eine echte System-Benachrichtigung erscheint.
-4. Danach kann man über **Einstellungen → Demo-Daten zurücksetzen** wieder von vorne anfangen.
+| Methode | Pfad | Zweck |
+|---|---|---|
+| GET | `/api/health` | Einrichtung prüfen |
+| GET | `/api/state` | Trainer, Trainings, Orte, Ausnahmen |
+| POST | `/api/login` | Trainer-Anmeldung mit PIN |
+| POST / DELETE | `/api/occurrences/{key}/cancel` | Absagen (mit Push) / zurücknehmen |
+| PUT / DELETE | `/api/occurrences/{key}/trainers` | Vertretung oder dauerhafter Wechsel |
+| PUT / DELETE | `/api/occurrences/{key}/location` | Ort für einen Termin |
+| PUT | `/api/rsvp` | Zu-/Absage eines Geräts |
+| GET | `/api/rsvps` | Rückmeldungen (nur Trainer) |
+| POST | `/api/push/subscribe` | Gerät für Push anmelden |
 
-### Auf dem Handy präsentieren
-Dafür muss die App unter einer HTTPS-Adresse erreichbar sein. Am einfachsten geht das so:
-
-**Netlify (Repo bleibt privat, kostenlos)**
-1. Auf [app.netlify.com](https://app.netlify.com) mit GitHub anmelden.
-2. **Add new project → Import an existing project → GitHub** wählen und Netlify Zugriff auf `Trainingsplan-Takumi` geben.
-3. Als Branch den Branch mit der App wählen (bzw. `main`, sobald gemergt). Build-Befehl und Ordner leer lassen, `netlify.toml` erledigt das.
-4. **Deploy** klicken. Man bekommt eine Adresse wie `https://irgendwas.netlify.app`.
-
-**Alternative: GitHub Pages.** Funktioniert kostenlos nur mit einem öffentlichen Repo. Settings → Pages → „Deploy from a branch“ → Branch wählen, Ordner `/ (root)`.
-
-**Ablauf auf einem einzigen Handy**
-1. Die Adresse öffnen, **„Zum Home-Bildschirm“** wählen und die App von dort starten.
-2. **Eltern & Kinder** wählen → bei „Nichts mehr verpassen!“ auf **Aktivieren** tippen → Benachrichtigungen erlauben.
-3. ⚙️ → **Zum Trainer-Zugang** → PIN `7474` → ein Training **absagen**. Die Push-Nachricht erscheint auf dem Handy.
-4. ⚙️ → **Zur Eltern-Ansicht wechseln**. Das Training ist jetzt rot markiert, auch im Feld „Dein nächstes Training“.
-
-Hinweis zum iPhone: Push-Nachrichten gibt es ab iOS 16.4, und nur wenn die App über „Zum Home-Bildschirm“ installiert wurde.
-
-## Projektstruktur
-
-```
-index.html              Einstiegsseite
-manifest.webmanifest    App-Infos für die Installation (Name, Icons, Farben)
-sw.js                   Service Worker: offline nutzbar + empfängt Push-Nachrichten
-css/styles.css          Gestaltung (hell/dunkel, mobil zuerst)
-js/
-  app.js                Ansichten & Bedienung
-  data.js               Trainingsplan & Trainer aus dem PDF
-  schedule.js           Wöchentlicher Plan → konkrete Termine im Kalender
-  store.js              Datenhaltung (jetzt lokal, später Server)
-  notify.js             Benachrichtigungen & Push-Anmeldung
-  config.js             Server-Adresse, Push-Schlüssel, Demo-PIN
-  dates.js, icons.js    Hilfsfunktionen, Icons & Logo
-icons/                  App-Icons
-docs/screenshots/       Screenshots
-```
-
-### Datenmodell
-- **Trainer:** `{ id, name }`
-- **Trainings (wöchentlich):** `{ id, weekday, title, audience, start, end, location, trainerIds }`
-- **Ausnahmen pro Termin:** Schlüssel `"<trainingId>@<YYYY-MM-DD>"`, z. B. `mo-shoshin@2026-11-23`, mit `{ canceled, reason, trainerIds }`
-- **Ereignisse:** Liste der Absagen. Daraus entstehen die Push-Nachrichten.
-
-Den Plan ändern (z. B. neue Zeiten oder ein neues Training): `js/data.js` anpassen und unter Einstellungen „Demo-Daten zurücksetzen“ wählen.
-
-## Nächste Schritte (Server)
-
-Alle Stellen, die ein Server später übernimmt, sind im Code mit `SERVER:` markiert (vor allem in `js/store.js`). Die Oberfläche bleibt dabei unverändert.
-
-1. **API** (Vorschlag):
-   | Methode | Pfad | Zweck |
-   |---|---|---|
-   | `GET` | `/api/schedule` | Trainer, Trainings und Ausnahmen laden |
-   | `POST` | `/api/occurrences/{key}/cancel` | Training absagen (`{ reason }`) → **Server verschickt Push** |
-   | `DELETE` | `/api/occurrences/{key}/cancel` | Absage zurücknehmen |
-   | `PUT` | `/api/occurrences/{key}/trainers` | Vertretung für einen Termin |
-   | `PUT` | `/api/sessions/{id}/trainers` | Trainer dauerhaft ändern |
-   | `POST/PATCH/DELETE` | `/api/trainers` | Trainer verwalten |
-   | `POST` | `/api/push/subscribe` | Gerät für Push anmelden (`{ subscription, groups }`) |
-2. **Web-Push:** Mit einem VAPID-Schlüsselpaar arbeiten (z. B. Node-Paket `web-push`). Den öffentlichen Schlüssel in `js/config.js` → `vapidPublicKey` eintragen. Der Service Worker (`sw.js`) zeigt eingehende Nachrichten an, auch wenn die App geschlossen ist. Erwartetes Format: `{ "title", "body", "tag", "url" }`.
-3. **Trainer-Login** auf dem Server prüfen, z. B. mit eigenen Zugängen pro Trainer statt einer gemeinsamen PIN.
-4. **Live-Aktualisierung**, wenn die App offen ist: neu laden beim Öffnen, optional per Server-Sent Events oder WebSocket.
-5. **Hosting mit HTTPS.** Das ist Pflicht für Push und für die Installation als App.
+`{key}` = `<trainingId>@<YYYY-MM-DD>`, z. B. `mo-shoshin@2026-11-30`.

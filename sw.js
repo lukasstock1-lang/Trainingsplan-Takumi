@@ -1,6 +1,6 @@
 // Service Worker: Offline-Fähigkeit und Push-Nachrichten.
 // Bei Änderungen an den App-Dateien die Versionsnummer erhöhen.
-const CACHE = 'takumi74-v2';
+const CACHE = 'takumi74-v3';
 
 const ASSETS = [
   './',

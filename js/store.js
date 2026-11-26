@@ -15,6 +15,7 @@ const DATA_KEY = 'takumi74.data'; // Demo-Daten
 const CACHE_KEY = 'takumi74.server-cache'; // zuletzt geladener Server-Stand
 const DEVICE_KEY = 'takumi74.device';
 const ROLE_KEY = 'takumi74.role';
+const DEVICE_ID_KEY = 'takumi74.deviceId';
 const REFRESH_MS = 60000;
 
 // Eindeutige Kennung dieses Tabs – damit der Absender einer Absage
@@ -34,6 +35,21 @@ function getStorage(name) {
 const local = getStorage('localStorage');
 const session = getStorage('sessionStorage');
 
+// Zufällige Geräte-Kennung für Zu-/Absagen (kein Konto nötig)
+function loadDeviceId() {
+  let id = local?.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+    try {
+      local?.setItem(DEVICE_ID_KEY, id);
+    } catch {
+      /* ignorieren */
+    }
+  }
+  return id;
+}
+export const DEVICE_ID = loadDeviceId();
+
 function read(storage, key) {
   if (!storage) return null;
   try {
@@ -52,14 +68,24 @@ function write(storage, key, value) {
   }
 }
 
-const validState = (s) => s && s.version === STATE_VERSION && Array.isArray(s.sessions) && Array.isArray(s.trainers);
+const validState = (s) =>
+  s && s.version === STATE_VERSION && Array.isArray(s.sessions) && Array.isArray(s.trainers) && Array.isArray(s.locations);
 
 function loadLocalState() {
   const saved = read(local, DATA_KEY);
   return validState(saved) ? saved : createDefaultState();
 }
 
-const DEVICE_DEFAULTS = { groups: [], notify: false, seenEventId: 0, seenServerEventId: 0, hideNotifyBanner: false };
+const DEVICE_DEFAULTS = {
+  groups: [],
+  notify: false,
+  seenEventId: 0,
+  seenServerEventId: 0,
+  hideNotifyBanner: false,
+  hideInstallBanner: false,
+  rsvpName: '', // Name für Zu-/Absagen
+  rsvps: {}, // eigene Zu-/Absagen { key: 'yes' | 'no' }
+};
 
 function loadDevice() {
   return {
@@ -77,6 +103,7 @@ let status = 'ok'; // 'ok' | 'offline'
 let serverConfig = null;
 let state = mode === 'server' && validState(read(local, CACHE_KEY)) ? read(local, CACHE_KEY) : loadLocalState();
 let device = loadDevice();
+let trainerRsvps = {}; // Server-Modus: Rückmeldungen aller Kinder (nur für Trainer)
 const listeners = new Set();
 
 function emit(meta = {}) {
@@ -120,7 +147,7 @@ function exceptionFor(key) {
 
 function dropEmptyException(key) {
   const ex = state.exceptions[key];
-  if (ex && !ex.canceled && !ex.trainerIds) delete state.exceptions[key];
+  if (ex && !ex.canceled && !ex.trainerIds && !ex.locationId) delete state.exceptions[key];
 }
 
 function slug(name) {
@@ -162,8 +189,9 @@ async function refresh() {
       const changed = JSON.stringify(next) !== JSON.stringify(state);
       const wasOffline = status !== 'ok';
       status = 'ok';
+      const rsvpsChanged = await refreshRsvps();
       if (changed) commit(next, { external: true });
-      else if (wasOffline) emit({ external: true });
+      else if (wasOffline || rsvpsChanged) emit({ external: true });
     } catch {
       if (status !== 'offline') {
         status = 'offline';
@@ -174,6 +202,33 @@ async function refresh() {
     }
   })();
   return refreshing;
+}
+
+// Zu-/Absagen laden: eigene (für die Anzeige) und – als Trainer – alle.
+async function refreshRsvps() {
+  let changed = false;
+  if (Object.keys(device.rsvps || {}).length || device.rsvpName) {
+    const { rsvps } = await api('GET', `api/rsvp/mine?device=${encodeURIComponent(DEVICE_ID)}`);
+    if (JSON.stringify(rsvps) !== JSON.stringify(device.rsvps)) {
+      store.setDevice({ rsvps }, { silent: true });
+      changed = true;
+    }
+  }
+  if (device.role === 'trainer' && getToken()) {
+    try {
+      const { rsvps } = await api('GET', 'api/rsvps', undefined, { auth: true });
+      if (JSON.stringify(rsvps) !== JSON.stringify(trainerRsvps)) {
+        trainerRsvps = rsvps;
+        changed = true;
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        setToken(null);
+        store.setRole('member');
+      }
+    }
+  }
+  return changed;
 }
 
 function startSync() {
@@ -287,6 +342,63 @@ export const store = {
     commit();
   },
 
+  // Ort nur für diesen Termin (Standard bleibt Erlenbach). Bewusst ohne Push-Nachricht.
+  async setLocation(key, locationId) {
+    if (isServer()) return commit(await trainerCall('PUT', occPath(key, 'location'), { locationId }));
+    const s = state.sessions.find((x) => x.id === key.split('@')[0]);
+    if (!s) return;
+    if (locationId === s.locationId) {
+      if (state.exceptions[key]) delete state.exceptions[key].locationId;
+    } else {
+      exceptionFor(key).locationId = locationId;
+    }
+    dropEmptyException(key);
+    commit();
+  },
+
+  // ---------- Zu-/Absagen (freiwillig, sehen nur die Trainer) ----------
+
+  myRsvp(key) {
+    return device.rsvps?.[key] || null;
+  },
+
+  // status: 'yes' | 'no' | null (Antwort zurücknehmen)
+  async setRsvp(key, status) {
+    const name = device.rsvpName;
+    if (isServer()) {
+      const { rsvps } = await api('PUT', 'api/rsvp', { key, deviceId: DEVICE_ID, name, status });
+      this.setDevice({ rsvps });
+      return;
+    }
+    state.rsvps ||= {};
+    state.rsvps[key] ||= {};
+    if (status) state.rsvps[key][DEVICE_ID] = { name, status };
+    else delete state.rsvps[key][DEVICE_ID];
+    const rsvps = { ...device.rsvps };
+    if (status) rsvps[key] = status;
+    else delete rsvps[key];
+    this.setDevice({ rsvps }, { silent: true });
+    commit();
+  },
+
+  async setRsvpName(name) {
+    if (isServer()) {
+      if (Object.keys(device.rsvps || {}).length) await api('PUT', 'api/device', { deviceId: DEVICE_ID, name });
+    } else {
+      Object.values(state.rsvps || {}).forEach((byDevice) => {
+        if (byDevice[DEVICE_ID]) byDevice[DEVICE_ID].name = name;
+      });
+      write(local, DATA_KEY, state);
+    }
+    this.setDevice({ rsvpName: name });
+  },
+
+  // Für Trainer: Rückmeldungen zu einem Termin → [{ name, status }]
+  rsvpsFor(key) {
+    if (isServer()) return trainerRsvps[key] || [];
+    return Object.values(state.rsvps?.[key] || {}).sort((a, b) => (a.status === b.status ? a.name.localeCompare(b.name) : a.status === 'yes' ? -1 : 1));
+  },
+
   // ---------- Trainer verwalten ----------
 
   async addTrainer(name) {
@@ -339,6 +451,7 @@ export const store = {
       return false;
     }
     this.setRole('trainer');
+    if (isServer()) refresh(); // lädt auch die Rückmeldungen der Kinder
     return true;
   },
 
