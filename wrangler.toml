@@ -1,0 +1,24 @@
+# Cloudflare Worker: liefert die App aus und stellt die API unter /api/ bereit.
+# Anleitung zum Einrichten: ANLEITUNG-CLOUDFLARE.md
+name = "takumi74"
+main = "server/src/index.js"
+compatibility_date = "2025-12-01"
+
+# Die App-Dateien (index.html, js/, css/, …) liegen im Hauptordner.
+# Was nicht ausgeliefert werden soll, steht in .assetsignore.
+[assets]
+directory = "."
+binding = "ASSETS"
+
+# Datenbank – wird beim ersten Deploy automatisch angelegt.
+# Tabellen, Startdaten und Push-Schlüssel richtet der Worker selbst ein.
+[[d1_databases]]
+binding = "DB"
+database_name = "takumi74"
+
+# Jede Nacht alte Termine und Rückmeldungen löschen
+[triggers]
+crons = ["23 2 * * *"]
+
+# Einziges Secret (in Cloudflare unter Einstellungen → Variablen und Secrets):
+#   TRAINER_PIN = die gemeinsame Trainer-PIN

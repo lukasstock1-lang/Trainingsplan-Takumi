@@ -1,0 +1,14 @@
+{
+  "name": "trainingsplan-takumi",
+  "private": true,
+  "description": "Trainingsplan Takumi 74 – App (PWA) + Cloudflare-Worker-Server",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test server/test/*.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "4.165.0"
+  }
+}
